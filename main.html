@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BLE Target Radar Locator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background-color: #06090e;
+            color: #c9d1d9;
+        }
+
+        .radar-glow {
+            box-shadow: 0 0 40px rgba(6, 182, 212, 0.12), inset 0 0 30px rgba(6, 182, 212, 0.05);
+        }
+
+        .glow-cyan {
+            text-shadow: 0 0 10px rgba(6, 182, 212, 0.7);
+        }
+
+        .glass-card {
+            background: rgba(13, 17, 23, 0.75);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(13, 17, 23, 0.5);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(6, 182, 212, 0.3);
+            border-radius: 2px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(6, 182, 212, 0.6);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between p-4 md:p-8 select-none">
+
+    <header class="w-full max-w-6xl mx-auto flex justify-between items-center pb-4 border-b border-cyan-950/60">
+        <div class="flex items-center space-x-3">
+            <div class="w-3 h-3 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_12px_#06b6d4]"></div>
+            <h1 class="text-xl md:text-2xl font-bold tracking-wider text-cyan-400 glow-cyan">RADAR//BLE.LOCATOR</h1>
+        </div>
+        <div class="flex items-center space-x-3">
+            <div class="relative group">
+                <button type="button" aria-label="What does this website do?" class="w-6 h-6 flex items-center justify-center rounded-full border border-cyan-800/50 text-cyan-400 text-xs font-bold hover:bg-cyan-950/60 hover:border-cyan-600 transition-colors">?</button>
+                <div class="hidden group-hover:block group-focus-within:block absolute right-0 top-full mt-2 w-64 p-3 rounded-lg glass-card border border-cyan-900/40 text-[11px] leading-relaxed text-gray-300 shadow-xl z-50">
+                    This page listens for nearby Bluetooth signals and shows them on a live radar. If one comes within 10 meters, your browser will send a notification.
+                </div>
+            </div>
+            <div class="flex items-center space-x-2 text-xs">
+                <span class="text-gray-500">HARDWARE:</span>
+                <span id="ble-support-badge" class="px-2.5 py-1 rounded-md text-xs font-semibold bg-cyan-950/80 text-cyan-400 border border-cyan-800/50">CHECKING API...</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="w-full max-w-6xl mx-auto my-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        
+        <!-- Radar Canvas Screen -->
+        <section class="lg:col-span-7 xl:col-span-8 flex flex-col items-center justify-center glass-card rounded-2xl p-4 md:p-6 relative overflow-hidden radar-glow border border-cyan-900/30">
+            <div class="absolute inset-0 bg-[radial-gradient(#06b6d4_1px,transparent_1px)] [background-size:20px_20px] opacity-10 pointer-events-none"></div>
+
+            <div class="relative w-full max-w-[500px] aspect-square flex items-center justify-center my-2">
+                <canvas id="radarCanvas" class="w-full h-full rounded-full cursor-crosshair"></canvas>
+            </div>
+
+            <div class="w-full flex justify-between items-center text-xs text-gray-400 mt-2 px-2 border-t border-cyan-900/30 pt-3">
+                <div class="flex space-x-4">
+                    <span>BAND: <strong class="text-cyan-400">2.4 GHz ISM</strong></span>
+                    <span>BEARING: <strong id="readout-bearing" class="text-cyan-400">000°</strong></span>
+                </div>
+                <div>
+                    <span>MAX RANGE: <strong class="text-cyan-400">15m</strong></span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Status & Control Panel -->
+        <section class="lg:col-span-5 xl:col-span-4 flex flex-col space-y-5">
+            
+            <!-- Target Definition Display Card -->
+            <div class="glass-card rounded-2xl p-5 border border-cyan-900/30">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xs font-semibold tracking-widest text-cyan-400 flex items-center">
+                        <svg class="w-4 h-4 mr-2 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m16-6h2m-2 6h2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>
+                        TARGET SPECIFICATION
+                    </h2>
+                    <span id="config-badge" class="px-2 py-0.5 text-[10px] bg-slate-800 text-cyan-300 rounded border border-slate-700">CODE CONFIG</span>
+                </div>
+
+                <div class="space-y-2 text-xs">
+                    <div class="flex justify-between py-1 border-b border-slate-800/80">
+                        <span class="text-gray-500">PRODUCT CODE:</span>
+                        <span id="cfg-code" class="font-bold text-cyan-300 font-mono">--</span>
+                    </div>
+                    <div class="flex justify-between py-1 border-b border-slate-800/80">
+                        <span class="text-gray-500">NAME FILTER:</span>
+                        <span id="cfg-prefix" class="font-mono text-gray-300">--</span>
+                    </div>
+                    <div class="flex justify-between py-1 border-b border-slate-800/80">
+                        <span class="text-gray-500">SERVICE UUID:</span>
+                        <span id="cfg-uuid" class="font-mono text-gray-300 truncate max-w-[170px]">--</span>
+                    </div>
+                    <div class="flex justify-between py-1">
+                        <span class="text-gray-500">MFR ID CODE:</span>
+                        <span id="cfg-mfr" class="font-mono text-gray-300">--</span>
+                    </div>
+                </div>
+
+                <!-- Action Control Buttons -->
+                <div class="pt-4 flex flex-col space-y-2.5">
+                    <button id="btn-scanner" class="w-full py-3 px-4 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs rounded-xl transition-all duration-200 flex items-center justify-center space-x-2 shadow-[0_0_20px_rgba(6,182,212,0.3)] active:scale-[0.98]">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        <span id="scanner-btn-label">START INTERNAL SCANNER</span>
+                    </button>
+
+                    <!-- Hackathon Demo Simulation Toggle -->
+                    <button id="btn-demo" class="w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs rounded-xl border border-emerald-900/50 transition-all duration-200 flex items-center justify-center space-x-2">
+                        <span>SIMULATION: OFF (HACKATHON DEMO)</span>
+                    </button>
+
+                    <p class="text-[10px] text-gray-600 leading-snug px-1">
+                        Continuous scanning needs Chrome with
+                        <span class="text-gray-500">chrome://flags/#enable-experimental-web-platform-features</span>
+                        enabled.
+                    </p>
+                    <div id="scan-diag" class="text-[11px] font-mono text-gray-400 px-1 leading-snug">Scanner not started.</div>
+                </div>
+            </div>
+
+            <!-- Target Telemetry Panel -->
+            <div class="glass-card rounded-2xl p-5 border border-cyan-900/30">
+                <h2 class="text-xs font-semibold tracking-widest text-cyan-400 mb-3 flex items-center">
+                    <svg class="w-4 h-4 mr-2 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    LIVE TARGET TELEMETRY
+                </h2>
+
+                <div class="space-y-2.5 text-xs">
+                    <div class="flex justify-between items-center py-1 border-b border-slate-800">
+                        <span class="text-gray-500">SCAN STATUS:</span>
+                        <span id="target-status" class="font-semibold text-amber-400">STANDBY / IDLE</span>
+                    </div>
+                    <div class="flex justify-between items-center py-1 border-b border-slate-800">
+                        <span class="text-gray-500">DETECTED DEVICE:</span>
+                        <span id="target-name" class="font-mono text-gray-300">--</span>
+                    </div>
+                    <div class="flex justify-between items-center py-1 border-b border-slate-800">
+                        <span class="text-gray-500">UNIQUE ID:</span>
+                        <span id="target-id" class="font-mono text-gray-300 truncate max-w-[170px]">--</span>
+                    </div>
+                    <div class="flex justify-between items-center py-1 border-b border-slate-800">
+                        <span class="text-gray-500">SIGNAL STRENGTH:</span>
+                        <div class="flex items-center space-x-2">
+                            <span id="target-rssi" class="font-mono text-cyan-400">-- dBm</span>
+                            <div class="w-12 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                <div id="rssi-bar" class="h-full bg-cyan-400 w-0 transition-all duration-300"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex justify-between items-center py-1">
+                        <span class="text-gray-500">EST. DISTANCE:</span>
+                        <span id="target-distance" class="font-mono text-emerald-400">-- m</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="logs-card" class="hidden glass-card rounded-2xl p-4 border border-cyan-900/30">
+                <div id="log-container" class="h-28 overflow-y-auto font-mono text-[11px] space-y-1 text-gray-400"></div>
+            </div>
+
+        </section>
+    </main>
+
+    <footer class="w-full max-w-6xl mx-auto pt-4 border-t border-cyan-950/60 flex flex-col md:flex-row justify-between items-center text-xs text-gray-600 gap-2">
+        <div>BLE Beacon & Smart Device Radar Terminal</div>
+        <div class="flex space-x-4">
+            <span class="flex items-center"><span class="w-2 h-2 rounded-full bg-cyan-400 inline-block mr-1.5"></span> Real Target</span>
+            <span class="flex items-center"><span class="w-2 h-2 rounded-full bg-emerald-400 inline-block mr-1.5"></span> Simulated Target</span>
+        </div>
+    </footer>
+
+    <script>
+        // TARGET BLE DEVICE CONFIGURATION
+        const CONFIG = {
+            DEVICE_PRODUCT_CODE: "META/SAMSUNG-DEVICE",
+            TARGET_NAME_PREFIX: null,
+            TARGET_SERVICE_UUID: null,
+            // 0x01AB = Meta Platforms, 0x0075 = Samsung Electronics
+            TARGET_MANUFACTURER_IDS: [0x01AB, 0x0075],
+            TX_POWER_AT_1M: -59,
+            PATH_LOSS_EXPONENT: 2.8
+        };
+
+        const state = {
+            bleSupported: false,
+            leScanSupported: false,
+            scanInstance: null,
+            scannerActive: false,
+            isDemoMode: false,
+            demoIntervalId: null,
+            sweepIntervalId: null,
+            detectedDevices: new Map(),
+            adsTotal: 0,
+            lastNotified: new Map(),
+            targets: [],
+            radarSweepAngle: 0,
+            radarSweepSpeed: 0.025
+        };
+
+        const TARGET_STALE_MS = 15000;
+        const SWEEP_INTERVAL_MS = 2000;
+        const NOTIFY_RADIUS_M = 10;
+        const NOTIFY_COOLDOWN_MS = 60000;
+
+        function setDiag(msg, isError = false) {
+            const el = document.getElementById('scan-diag');
+            if (!el) return;
+            el.textContent = msg;
+            el.className = 'text-[11px] font-mono px-1 leading-snug ' + (isError ? 'text-rose-400' : 'text-gray-400');
+        }
+
+        function updateScanDiag() {
+            setDiag(`Broadcasts heard: ${state.adsTotal} | Tracked devices: ${state.detectedDevices.size}`);
+        }
+
+        const canvas = document.getElementById('radarCanvas');
+        const ctx = canvas.getContext('2d');
+        const btnScanner = document.getElementById('btn-scanner');
+        const btnDemo = document.getElementById('btn-demo');
+        const scannerBtnLabel = document.getElementById('scanner-btn-label');
+        const statusBadge = document.getElementById('ble-support-badge');
+        const targetStatusEl = document.getElementById('target-status');
+        const targetNameEl = document.getElementById('target-name');
+        const targetIdEl = document.getElementById('target-id');
+        const targetRssiEl = document.getElementById('target-rssi');
+        const rssiBarEl = document.getElementById('rssi-bar');
+        const targetDistanceEl = document.getElementById('target-distance');
+        const readoutBearingEl = document.getElementById('readout-bearing');
+        const logContainer = document.getElementById('log-container');
+
+        const cfgCodeEl = document.getElementById('cfg-code');
+        const cfgPrefixEl = document.getElementById('cfg-prefix');
+        const cfgUuidEl = document.getElementById('cfg-uuid');
+        const cfgMfrEl = document.getElementById('cfg-mfr');
+
+        function initConfigUI() {
+            cfgCodeEl.textContent = CONFIG.DEVICE_PRODUCT_CODE || "UNSPECIFIED";
+            cfgPrefixEl.textContent = CONFIG.TARGET_NAME_PREFIX || "ANY";
+            cfgUuidEl.textContent = CONFIG.TARGET_SERVICE_UUID || "NONE";
+            cfgMfrEl.textContent = CONFIG.TARGET_MANUFACTURER_IDS 
+                ? CONFIG.TARGET_MANUFACTURER_IDS.map(id => `0x${id.toString(16).toUpperCase()}`).join(", ") 
+                : "NONE";
+        }
+
+        function resizeCanvas() {
+            const rect = canvas.getBoundingClientRect();
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+        }
+        window.addEventListener('resize', resizeCanvas);
+
+        function log(msg, type = 'info') {
+            console.log(`[BLE-RADAR:${type}] ${msg}`);
+            if (!logContainer) return;
+            const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const entry = document.createElement('div');
+            let colorClass = 'text-gray-400';
+            if (type === 'success') colorClass = 'text-cyan-400';
+            if (type === 'warn') colorClass = 'text-amber-400';
+            if (type === 'error') colorClass = 'text-rose-400';
+            if (type === 'demo') colorClass = 'text-emerald-400';
+
+            entry.className = colorClass;
+            entry.innerHTML = `<span class="text-gray-600">[${time}]</span> ${msg}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function checkBleSupport() {
+            if ('bluetooth' in navigator) {
+                state.bleSupported = true;
+                state.leScanSupported = typeof navigator.bluetooth.requestLEScan === 'function';
+
+                if (state.leScanSupported) {
+                    statusBadge.textContent = 'BLE READY // SCAN OK';
+                    statusBadge.className = 'px-2.5 py-1 rounded-md text-xs font-semibold bg-cyan-950 text-cyan-400 border border-cyan-800/50';
+                } else {
+                    statusBadge.textContent = 'BLE READY // SCAN FLAG OFF';
+                    statusBadge.className = 'px-2.5 py-1 rounded-md text-xs font-semibold bg-amber-950 text-amber-400 border border-amber-800/50';
+                }
+            } else {
+                state.bleSupported = false;
+                state.leScanSupported = false;
+                statusBadge.textContent = 'BLE UNSUPPORTED';
+                statusBadge.className = 'px-2.5 py-1 rounded-md text-xs font-semibold bg-rose-950 text-rose-400 border border-rose-800/50';
+            }
+        }
+
+        function calculateDistance(rssi) {
+            if (!rssi) return null;
+            const ratio = (CONFIG.TX_POWER_AT_1M - rssi) / (10 * CONFIG.PATH_LOSS_EXPONENT);
+            const dist = Math.pow(10, ratio);
+            return parseFloat(dist.toFixed(2));
+        }
+
+        function drawRadar() {
+            const width = canvas.getBoundingClientRect().width;
+            const height = canvas.getBoundingClientRect().height;
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const radius = Math.min(centerX, centerY) - 22;
+
+            ctx.clearRect(0, 0, width, height);
+
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius + 10, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(6, 182, 212, 0.35)';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
+            const ringCount = 4;
+            for (let i = 1; i <= ringCount; i++) {
+                const r = (radius / ringCount) * i;
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, r, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(6, 182, 212, 0.15)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([4, 4]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                ctx.fillStyle = 'rgba(6, 182, 212, 0.4)';
+                ctx.font = '9px "JetBrains Mono"';
+                ctx.fillText(`${(i * 3.75).toFixed(1)}m`, centerX + 4, centerY - r + 12);
+            }
+
+            ctx.beginPath();
+            ctx.moveTo(centerX - radius - 6, centerY);
+            ctx.lineTo(centerX + radius + 6, centerY);
+            ctx.moveTo(centerX, centerY - radius - 6);
+            ctx.lineTo(centerX, centerY + radius + 6);
+            ctx.strokeStyle = 'rgba(6, 182, 212, 0.2)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            ctx.fillStyle = '#06b6d4';
+            ctx.font = 'bold 11px "JetBrains Mono"';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('N', centerX, centerY - radius - 14);
+            ctx.fillText('S', centerX, centerY + radius + 14);
+            ctx.fillText('E', centerX + radius + 14, centerY);
+            ctx.fillText('W', centerX - radius - 14, centerY);
+
+            state.radarSweepAngle = (state.radarSweepAngle + state.radarSweepSpeed) % (Math.PI * 2);
+            
+            let currentBearingDeg = Math.round(((state.radarSweepAngle + Math.PI / 2) % (Math.PI * 2)) * (180 / Math.PI));
+            if (currentBearingDeg < 0) currentBearingDeg += 360;
+            readoutBearingEl.textContent = `${String(currentBearingDeg).padStart(3, '0')}°`;
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.arc(centerX, centerY, radius, state.radarSweepAngle - 0.45, state.radarSweepAngle);
+            ctx.closePath();
+
+            const sweepAlpha = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
+            sweepAlpha.addColorStop(0, 'rgba(6, 182, 212, 0.02)');
+            sweepAlpha.addColorStop(1, 'rgba(6, 182, 212, 0.22)');
+            ctx.fillStyle = sweepAlpha;
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.lineTo(
+                centerX + Math.cos(state.radarSweepAngle) * radius,
+                centerY + Math.sin(state.radarSweepAngle) * radius
+            );
+            ctx.strokeStyle = '#06b6d4';
+            ctx.lineWidth = 1.8;
+            ctx.shadowColor = '#06b6d4';
+            ctx.shadowBlur = 12;
+            ctx.stroke();
+            ctx.restore();
+
+            const now = Date.now();
+            state.targets.forEach((target) => {
+                const targetDist = target.distanceRatio * radius;
+                const bx = centerX + Math.cos(target.angle) * targetDist;
+                const by = centerY + Math.sin(target.angle) * targetDist;
+
+                let angleDiff = state.radarSweepAngle - target.angle;
+                while (angleDiff < 0) angleDiff += Math.PI * 2;
+                while (angleDiff >= Math.PI * 2) angleDiff -= Math.PI * 2;
+
+                let glowIntensity = Math.pow(1.0 - (angleDiff / (Math.PI * 2)), 2.2);
+
+                const colorHex = target.isDemo ? '#10b981' : '#06b6d4';
+                const shadowColorHex = target.isDemo ? 'rgba(16,185,129,' : 'rgba(6,182,212,';
+
+                ctx.save();
+                const pulseSize = 6 + Math.sin(now * 0.006) * 3.5;
+                ctx.beginPath();
+                ctx.arc(bx, by, pulseSize, 0, Math.PI * 2);
+                ctx.strokeStyle = `${shadowColorHex}${0.35 * glowIntensity})`;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.arc(bx, by, 4.5, 0, Math.PI * 2);
+                ctx.fillStyle = colorHex;
+                ctx.shadowColor = colorHex;
+                ctx.shadowBlur = 14 * glowIntensity;
+                ctx.globalAlpha = Math.max(0.35, glowIntensity);
+                ctx.fill();
+
+                ctx.font = '10px "JetBrains Mono"';
+                ctx.fillStyle = target.isDemo ? '#a7f3d0' : '#a5f3fc';
+                ctx.fillText(`[${target.code || 'TARGET'}]`, bx + 9, by - 4);
+                ctx.restore();
+            });
+
+            requestAnimationFrame(drawRadar);
+        }
+
+        function angleForDeviceId(id) {
+            let hash = 0;
+            for (let i = 0; i < id.length; i++) {
+                hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+            }
+            return (hash % 360) * (Math.PI / 180);
+        }
+
+        async function ensureNotificationPermission() {
+            if (!('Notification' in window)) return false;
+            if (Notification.permission === 'granted') return true;
+            try {
+                const result = await Notification.requestPermission();
+                return result === 'granted';
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function maybeNotifyProximity(target, distance) {
+            if (distance === null || distance > NOTIFY_RADIUS_M) return;
+            if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
+            const now = Date.now();
+            const lastNotifiedAt = state.lastNotified.get(target.id) || 0;
+            if (now - lastNotifiedAt < NOTIFY_COOLDOWN_MS) return;
+
+            state.lastNotified.set(target.id, now);
+
+            try {
+                new Notification('Target Device Nearby', {
+                    body: `Detected target (${target.name}) at ~${distance}m range.`,
+                    tag: `ble-target-${target.id}`
+                });
+                if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+            } catch (e) {}
+        }
+
+        function onAdvertisementReceived(event) {
+            state.adsTotal++;
+            const id = event.device.id;
+            const name = event.name || event.device.name || 'Target Device';
+
+            state.detectedDevices.set(id, {
+                id,
+                name,
+                rssi: event.rssi,
+                lastSeen: Date.now(),
+                isDemo: false
+            });
+
+            updateScanDiag();
+        }
+
+        function sweepRadar() {
+            const now = Date.now();
+
+            for (const [id, d] of state.detectedDevices) {
+                if (!d.isDemo && now - d.lastSeen > TARGET_STALE_MS) {
+                    state.detectedDevices.delete(id);
+                }
+            }
+
+            state.targets = [];
+            state.detectedDevices.forEach(d => {
+                const dist = calculateDistance(d.rssi);
+                const target = {
+                    id: d.id,
+                    name: d.name,
+                    code: d.isDemo ? 'SIM-TARGET' : (CONFIG.DEVICE_PRODUCT_CODE || 'TARGET'),
+                    angle: angleForDeviceId(d.id),
+                    distanceRatio: Math.min(0.85, Math.max(0.12, dist / 15)),
+                    rssi: d.rssi,
+                    lastSeen: d.lastSeen,
+                    isDemo: d.isDemo
+                };
+                state.targets.push(target);
+                maybeNotifyProximity(target, dist);
+            });
+
+            if (state.targets.length === 0) {
+                targetStatusEl.textContent = state.scannerActive ? 'SCANNING / NO TARGETS' : 'STANDBY / IDLE';
+                targetStatusEl.className = 'font-semibold text-amber-400';
+                resetTelemetryDisplay();
+                return;
+            }
+
+            const primary = state.targets.reduce((a, b) => (a.rssi > b.rssi ? a : b));
+            targetStatusEl.textContent = `TRACKING ${state.targets.length} TARGET${state.targets.length > 1 ? 'S' : ''}`;
+            targetStatusEl.className = 'font-semibold text-cyan-400';
+            targetNameEl.textContent = primary.name;
+            targetIdEl.textContent = primary.id;
+            updateTelemetryDisplay(Math.round(primary.rssi), calculateDistance(primary.rssi));
+        }
+
+        async function startAutoScanner() {
+            if (!state.bleSupported || !state.leScanSupported) {
+                setDiag('ERROR: Browser scanning API unavailable. Try Demo Mode below.', true);
+                return;
+            }
+
+            const scanFilters = [];
+            if (CONFIG.TARGET_SERVICE_UUID) {
+                scanFilters.push({ services: [CONFIG.TARGET_SERVICE_UUID.toLowerCase()] });
+            }
+            if (CONFIG.TARGET_NAME_PREFIX) {
+                scanFilters.push({ namePrefix: CONFIG.TARGET_NAME_PREFIX });
+            }
+            if (CONFIG.TARGET_MANUFACTURER_IDS && CONFIG.TARGET_MANUFACTURER_IDS.length > 0) {
+                CONFIG.TARGET_MANUFACTURER_IDS.forEach(id => {
+                    scanFilters.push({ manufacturerData: [{ companyIdentifier: id }] });
+                });
+            }
+
+            const options = scanFilters.length > 0
+                ? { filters: scanFilters, keepRepeatedDevices: true }
+                : { acceptAllAdvertisements: true, keepRepeatedDevices: true };
+
+            try {
+                navigator.bluetooth.addEventListener('advertisementreceived', onAdvertisementReceived);
+                state.scanInstance = await navigator.bluetooth.requestLEScan(options);
+                ensureNotificationPermission();
+
+                state.scannerActive = true;
+                scannerBtnLabel.textContent = 'STOP INTERNAL SCANNER';
+                btnScanner.classList.replace('bg-cyan-600', 'bg-rose-600');
+                btnScanner.classList.replace('hover:bg-cyan-500', 'hover:bg-rose-500');
+
+                targetStatusEl.textContent = 'SCANNING / NO TARGETS';
+                targetStatusEl.className = 'font-semibold text-amber-400 animate-pulse';
+
+                state.adsTotal = 0;
+                setDiag('Scanner running. Listening for target broadcasts...');
+
+                state.sweepIntervalId = setInterval(sweepRadar, SWEEP_INTERVAL_MS);
+                sweepRadar();
+
+            } catch (err) {
+                setDiag(`ERROR: ${err.name}: ${err.message}`, true);
+            }
+        }
+
+        function stopAutoScanner() {
+            if (state.scanInstance) {
+                state.scanInstance.stop();
+                state.scanInstance = null;
+            }
+            navigator.bluetooth.removeEventListener('advertisementreceived', onAdvertisementReceived);
+            clearInterval(state.sweepIntervalId);
+            state.sweepIntervalId = null;
+            state.scannerActive = false;
+
+            for (const [id, d] of state.detectedDevices) {
+                if (!d.isDemo) state.detectedDevices.delete(id);
+            }
+
+            scannerBtnLabel.textContent = 'START INTERNAL SCANNER';
+            btnScanner.classList.replace('bg-rose-600', 'bg-cyan-600');
+            btnScanner.classList.replace('hover:bg-rose-500', 'hover:bg-cyan-500');
+
+            targetStatusEl.textContent = 'STANDBY / IDLE';
+            targetStatusEl.className = 'font-semibold text-amber-400';
+            resetTelemetryDisplay();
+            sweepRadar();
+        }
+
+        // HACKATHON DEMO SIMULATION TOGGLE
+        function toggleDemoMode() {
+            state.isDemoMode = !state.isDemoMode;
+
+            if (state.isDemoMode) {
+                btnDemo.textContent = "SIMULATION: ON (RUNNING)";
+                btnDemo.className = "w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs rounded-xl transition-all duration-200 flex items-center justify-center space-x-2";
+
+                state.demoIntervalId = setInterval(() => {
+                    const now = Date.now();
+                    const simulatedDevices = [
+                        {
+                            id: "DEMO-META-RAYBAN-01",
+                            name: "Ray-Ban Meta (Simulated)",
+                            rssi: -50 - Math.floor(Math.random() * 20),
+                            isDemo: true
+                        },
+                        {
+                            id: "DEMO-SAMSUNG-S24-02",
+                            name: "Galaxy S24 (Simulated)",
+                            rssi: -65 - Math.floor(Math.random() * 25),
+                            isDemo: true
+                        }
+                    ];
+
+                    simulatedDevices.forEach(dev => {
+                        state.detectedDevices.set(dev.id, {
+                            id: dev.id,
+                            name: dev.name,
+                            rssi: dev.rssi,
+                            lastSeen: now,
+                            isDemo: true
+                        });
+                    });
+
+                    sweepRadar();
+                }, 1500);
+
+                if (!state.sweepIntervalId) {
+                    state.sweepIntervalId = setInterval(sweepRadar, SWEEP_INTERVAL_MS);
+                }
+            } else {
+                btnDemo.textContent = "SIMULATION: OFF (HACKATHON DEMO)";
+                btnDemo.className = "w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs rounded-xl border border-emerald-900/50 transition-all duration-200 flex items-center justify-center space-x-2";
+
+                clearInterval(state.demoIntervalId);
+                state.demoIntervalId = null;
+
+                for (const [id, d] of state.detectedDevices) {
+                    if (d.isDemo) state.detectedDevices.delete(id);
+                }
+
+                sweepRadar();
+            }
+        }
+
+        function updateTelemetryDisplay(rssi, distance) {
+            targetRssiEl.textContent = `${rssi} dBm`;
+            targetDistanceEl.textContent = distance ? `${distance} m` : '--';
+
+            const percentage = Math.min(100, Math.max(0, ((rssi + 100) / 60) * 100));
+            rssiBarEl.style.width = `${percentage}%`;
+            if (percentage > 60) rssiBarEl.className = 'h-full bg-cyan-400 transition-all duration-300';
+            else if (percentage > 30) rssiBarEl.className = 'h-full bg-amber-400 transition-all duration-300';
+            else rssiBarEl.className = 'h-full bg-rose-500 transition-all duration-300';
+        }
+
+        function resetTelemetryDisplay() {
+            targetNameEl.textContent = '--';
+            targetIdEl.textContent = '--';
+            targetRssiEl.textContent = '-- dBm';
+            targetDistanceEl.textContent = '-- m';
+            rssiBarEl.style.width = '0%';
+        }
+
+        btnScanner.addEventListener('click', () => {
+            if (state.scannerActive) {
+                stopAutoScanner();
+            } else {
+                startAutoScanner();
+            }
+        });
+
+        btnDemo.addEventListener('click', toggleDemoMode);
+
+        window.onload = function() {
+            initConfigUI();
+            checkBleSupport();
+            resizeCanvas();
+            drawRadar();
+        };
+    </script>
+</body>
+</html>
